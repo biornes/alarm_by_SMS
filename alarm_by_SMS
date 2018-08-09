@@ -1,0 +1,178 @@
+# alarm_by_SMS
+# alarm by sms for monitoring systems that can send email message
+import poplib
+import time
+from bs4 import BeautifulSoup
+# from try_port import send_message
+import serial
+import time
+
+
+# Mailbox = imaplib.IMAP4("localhost")
+# Mailbox.login("test1@my.local", "test")
+# t, data = Mailbox.fetch('1', '(RFC822)')
+
+
+
+class Alarm_by_SMS:
+	client = ''
+	text = ''
+	alarm = False # bool
+	COUNT = 0
+	phone_numbers = []
+	def __init__(self):
+		with open ("config.txt", 'r') as file:
+			self.client = file.readline().replace("\n", "")
+			self.COUNT = int (file.readline().replace("\n", ""))
+			# print (self.COUNT)
+			self.phone_numbers.append(self.client)
+	def logs(self, msg):
+		with open ("logs.log", 'a') as file:
+			file.write(msg)
+
+	# def partition_msg (self, msg):
+	# 	if len(msg)%70 != 0:
+	# 		return len(msg)//70+1
+	# 	else:
+	# 		return len(msg)//70
+
+	def polling (self):
+		while (1):
+			# mailbox = poplib.POP3("localhost")
+			# mailbox.user("test1@my.local")
+			# mailbox.pass_("test")
+			mailbox, email_list = self.get_mailbox()
+			# count = mailbox.stat()[0]
+			# print (count)
+			if count != self.COUNT:
+				self.logs(time.ctime(time.time())+'\t\t\t'+ str(count-self.COUNT)+' new email messages\n')
+				for j in range(1, count - self.COUNT+1):
+					# strings = mailbox.retr(count + j) 
+					# msg =''
+					# for i in strings:
+					# 	msg += str(i)
+					# with open ("msg.html", 'w') as file:
+					# 	print (msg)
+					# 	file.write(msg)
+					# print (j)
+					self.get_html(mailbox, self.COUNT+j)
+					msg = self.parser() # придумать механизм разделения больших сообщений
+					MSG_NUM = self.partition_msg(msg)
+					parts = list()
+					if len(msg)>60:
+						parts.append(msg[0:60])
+						msg = msg[60:]
+					# print (MSG_NUM)
+					else:
+						parts = [msg]
+					self.logs(time.ctime(time.time())+"\t\t\t"+ str(MSG_NUM) + " SMS will be delivered\n")
+					for part in parts:
+						retries = 0
+						msg_count = 1
+						while (self.send_message(part, self.phone_numbers)!=0 and retries<5):
+							retries += 1
+							print (retries)
+							self.logs(time.ctime(time.time())+"\t\t\t"+ "delivery error for {0}/{1} try {2}/5\n".format(str(msg_count), str(MSG_NUM), str(retries)))
+							# time.sleep(10)
+						if retries == 5:
+							self.send_message("Сообщение не может быть доставлено!", self.phone_numbers)
+							break
+						msg_count += 1
+
+							# pass abs(len(msg)-70*msg_count)
+						self.logs(time.ctime(time.time())+"\t\t\t"+ str(msg_count)+"/"+str(MSG_NUM)+" SMS delivered\n")
+					# self.COUNT+=1
+				mailbox.close()
+		self.COUNT = count
+		
+		parts = list()
+		
+		time.sleep(30)					
+
+	def get_mailbox(self):
+		# mailbox = imaplib.IMAP4("localhost")
+		# mailbox.login("test1@my.local", "test")
+		# mailbox.select("INBOX")
+		# typ, data = mailbox.search(None, "INBOX", "UNSEEN", '(FROM "%s")' % ("test2@my.local"))
+		# unread_msg_nums = data[0].split()
+		# print (unread_msg_nums)
+		# email_list = list()
+		# for num in data[0].split():
+		# 	typ, data = mailbox.fetch(num, '(RFC822)')
+		# 	email_list.append(data[0][1])
+		# 	# print (Mailbox.store(num,'+FLAGS','\\SEEN'))
+		# return (mailbox, email_list)
+		mailbox = poplib.POP3("localhost")
+		mailbox.user("test1@my.local")
+		mailbox.pass_("test")
+		return mailbox
+	def get_html(self, mailbox, count):
+		# print (count)
+		msg = str(mailbox.retr(count))
+		if 'From: "test2@my.local" <test2@my.local>' in msg:
+			with open ("msg.html", 'w') as file:
+				file.write(msg)
+		else:
+			#to receive
+			pass
+	def config(self, phone_numbers):
+		with open ("phones.txt", "r") as file:
+			phones_text = file.read()
+			self.phone_numbers = phones_text.split("\n").remove("")
+	def parser(self):
+		file = open("msg.html")
+		doc = file.read()
+		file.close()
+		soup = BeautifulSoup(doc, "html.parser")
+		listing = soup.find_all("tr")
+		content = (listing[0].contents)[1].contents[0]
+		return content
+	def send_message(self, msg, phone_numbers):
+		# try:
+			ser = serial.Serial(port="COM3", baudrate=115200, bytesize=serial.SEVENBITS, parity=serial.PARITY_EVEN, 
+								stopbits=serial.STOPBITS_ONE, timeout=2,
+								xonxoff=True, rtscts=False, write_timeout=None,
+								dsrdtr=False, inter_byte_timeout=None, exclusive=None)
+
+			ser.close()
+			ser.open()
+			ser.write(b"ATV0\r")
+			ser.write(bytes([26]))
+			# print (ser.readline())
+			print (phone_numbers)
+			for number in phone_numbers:
+				ser.write(bytes('AT+CMGS='+'"'+number+'"'+'\r', encoding = "cp1251"))
+				time.sleep(1)
+				ser.write(msg.encode()+b"\r")
+				time.sleep(1)
+				ser.write(bytes([26]))
+				time.sleep(1)
+				string = ''
+				for i in range(0, 4):
+					string += ser.readline().decode("utf-8")
+				print ("i'm here")
+				# print (ord(string))
+				if "ERROR" in string or string == "":
+					# print (string)
+				# print ("SOMETHING WRONG") # нужен флаг, который будет показывать, что на этом номере произошёл сбой
+					ser.close()
+					return 1
+				else:
+					# print ("ALL ALRIGHT")
+					ser.close()
+					return 0
+		# except:
+			self.logs(time.ctime(time.time())+'\t\t\t'+ 'check your connection\n')
+			exit()
+
+
+new_object = Alarm_by_SMS()
+new_object.polling()
+
+
+
+#
+# Сделать конфигуратор содержимого СМС
+# продумать skip
+# 
+#
